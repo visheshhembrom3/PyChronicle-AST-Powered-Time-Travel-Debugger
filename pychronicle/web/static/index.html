@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PyChronicle — AST-Powered Time-Travel Python Debugger</title>
+    <link rel="stylesheet" href="/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="dark-theme">
+    <div id="app" class="app-root">
+
+        <!-- Top Navigation Header -->
+        <header class="app-header">
+            <div class="header-brand-group">
+                <div class="brand-logo" onclick="window.PyChronicleApp.switchView('workspace')">
+                    <div class="brand-icon-box">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <polyline points="12 6 12 12 16 14"></polyline>
+                            <path d="M12 2v2"></path>
+                            <path d="M12 20v2"></path>
+                        </svg>
+                    </div>
+                    <div class="brand-titles">
+                        <span class="brand-title">PyChronicle</span>
+                        <span class="brand-sub">AST-Powered Time-Travel Debugger</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Header Center: Context & Mode Info -->
+            <div class="header-center-info" id="headerCenterInfo">
+                <div class="program-context-pill" id="programContextPill">
+                    <span class="context-name" id="headerProgramName">5 Digit Palindrome</span>
+                    <span class="context-ver" id="headerVersionBadge">v1</span>
+                    <span class="context-dirty hidden" id="headerDirtyIndicator" title="Unsaved changes">• Edited</span>
+                </div>
+            </div>
+
+            <!-- Header Right: Primary Action Toolbar -->
+            <div class="header-toolbar">
+                <button id="btnNavHome" class="btn btn-secondary btn-sm" title="Go to Programming Workspace (H)">
+                    <span>🏠 Home (H)</span>
+                </button>
+                <button id="btnNavSave" class="btn btn-secondary btn-sm" title="Save program (Ctrl+S)">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                    <span>Save (Ctrl+S)</span>
+                </button>
+                <button id="btnNavRun" class="btn btn-primary btn-sm btn-run" title="Run code (Ctrl+Enter / F5)">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                    <span>▶ Run (F5)</span>
+                </button>
+                <button id="btnNavDebug" class="btn btn-accent btn-sm btn-debug" title="Open time-travel debugger (F3)">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path><circle cx="12" cy="12" r="4"></circle></svg>
+                    <span>🐞 Debug (F3)</span>
+                </button>
+                <button id="btnNavHistory" class="btn btn-secondary btn-sm" title="View execution history (F2)">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 14 14"></polyline></svg>
+                    <span>History (F2)</span>
+                </button>
+                <button id="btnNavQuit" class="btn btn-danger btn-sm btn-quit" title="Quit session (Q)">
+                    <span>✕ Quit (Q)</span>
+                </button>
+
+                <!-- Status Pill -->
+                <div class="status-pill status-ready" id="headerStatusPill">READY</div>
+            </div>
+        </header>
+
+        <!-- VIEW 1: PROGRAMMING WORKSPACE (DEFAULT) -->
+        <main class="view-container active" id="viewWorkspace">
+            <div class="workspace-layout">
+                <!-- Left Sidebar: Programs -->
+                <aside class="sidebar-panel">
+                    <div class="sidebar-head">
+                        <div class="sidebar-title-bar">
+                            <span class="panel-heading">PROGRAMS</span>
+                            <span class="count-badge" id="sidebarProgramCount">0</span>
+                        </div>
+                        <div class="sidebar-search">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                            <input type="text" id="workspaceSearchInput" placeholder="Search programs...">
+                        </div>
+                        <button id="btnSidebarNewProgram" class="btn btn-outline btn-full btn-xs">+ New Program</button>
+                    </div>
+
+                    <div class="sidebar-content" id="workspaceProgramList">
+                        <!-- Dynamic program items -->
+                    </div>
+
+                    <div class="sidebar-foot">
+                        <span class="foot-note">PyChronicle SQLite Store</span>
+                    </div>
+                </aside>
+
+                <!-- Center/Right: Code Editor + Console Output -->
+                <div class="workspace-main">
+                    <!-- Code Editor Section -->
+                    <div class="editor-pane" id="workspaceEditorPane">
+                        <div class="pane-toolbar">
+                            <div class="pane-tab active">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+                                <span id="workspaceTabFilename">palindrome.py</span>
+                            </div>
+                            <div class="pane-meta">
+                                <span id="workspaceCursorPos">Ln 1, Col 1</span>
+                                <span class="shortcut-tip">Ctrl+Enter: Run • Ctrl+S: Save</span>
+                            </div>
+                        </div>
+
+                        <div class="code-editor-box">
+                            <div class="editor-gutter" id="workspaceGutter"></div>
+                            <textarea id="workspaceTextarea" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" placeholder="# Write Python code here..."></textarea>
+                        </div>
+                    </div>
+
+                    <!-- Resizer -->
+                    <div class="pane-resizer" id="workspaceResizer"></div>
+
+                    <!-- Console Output Section -->
+                    <div class="console-pane" id="workspaceConsolePane">
+                        <div class="pane-toolbar">
+                            <div class="pane-title">OUTPUT</div>
+                            <div class="console-meta" id="consoleMeta">
+                                <span class="meta-tag" id="metaStatus">Status: Ready</span>
+                                <span class="meta-tag" id="metaDuration">Execution: -</span>
+                                <span class="meta-tag" id="metaSession">Session: -</span>
+                            </div>
+                        </div>
+                        <div class="console-body">
+                            <pre class="console-stdout" id="workspaceStdout">Ready. Click '▶ Run' to execute code or '🐞 Debug' for time-travel inspection.</pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- VIEW 2: FOCUSED DEBUGGER WORKSPACE (DEBUG MODE) -->
+        <main class="view-container" id="viewDebug">
+            <div class="debug-workspace-layout">
+                <!-- Debug Subheader -->
+                <div class="debug-subheader">
+                    <div class="debug-title-box">
+                        <span class="debug-mode-badge">🐞 DEBUG MODE</span>
+                        <span class="debug-prog-title" id="debugProgramTitle">5 Digit Palindrome</span>
+                    </div>
+                </div>
+
+                <!-- Main Split: Source vs Variables -->
+                <div class="debug-panels-split">
+                    <!-- Left: Source Code View (Read Only with Line Marker) -->
+                    <div class="debug-source-panel">
+                        <div class="pane-toolbar">
+                            <span class="pane-title">SOURCE CODE</span>
+                            <span class="source-line-indicator" id="debugCurrentLineIndicator">Line: -</span>
+                        </div>
+                        <div class="debug-code-box">
+                            <div class="editor-gutter" id="debugGutter"></div>
+                            <pre class="debug-source-code" id="debugSourceCode"></pre>
+                        </div>
+                    </div>
+
+                    <!-- Right: Current Step Variables Inspector -->
+                    <div class="debug-vars-panel">
+                        <div class="pane-toolbar">
+                            <span class="pane-title">CURRENT STEP VARIABLES</span>
+                            <span class="scope-indicator" id="debugActiveScopeIndicator">Scope: &lt;module&gt;</span>
+                        </div>
+                        <div class="debug-vars-content" id="debugVariablesContainer">
+                            <!-- Dynamic variables table -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Watch Variables Strip -->
+                <div class="debug-watch-strip">
+                    <div class="watch-strip-head">
+                        <span class="pane-title">WATCH VARIABLES</span>
+                        <div class="watch-strip-controls">
+                            <input type="text" id="debugWatchInput" placeholder="Add variable to watch..." class="watch-mini-input">
+                            <button id="btnDebugAddWatch" class="btn btn-primary btn-xs">+ Add Watch</button>
+                            <button id="btnDebugClearWatches" class="btn btn-secondary btn-xs">Clear All</button>
+                        </div>
+                    </div>
+                    <div class="watch-chips-container" id="debugWatchChips">
+                        <!-- Dynamic watch chips -->
+                    </div>
+                </div>
+
+                <!-- Compact Time-Travel Controller -->
+                <div class="debug-timeline-bar">
+                    <div class="timeline-step-badge" id="debugStepBadge">STEP 1 / 39</div>
+
+                    <div class="timeline-nav-group">
+                        <button id="btnDebugFirst" class="btn-step" title="First step (Home)">⏮ First</button>
+                        <button id="btnDebugPrev" class="btn-step" title="Previous step (Shift+F10 / ←)">◀ Prev</button>
+                        <button id="btnDebugNext" class="btn-step" title="Next step (F10 / →)">▶ Next</button>
+                        <button id="btnDebugLast" class="btn-step" title="Last step (End)">⏭ Last</button>
+                    </div>
+
+                    <div class="timeline-slider-box">
+                        <input type="range" id="debugSlider" min="1" max="1" value="1" class="step-slider">
+                    </div>
+
+                    <div class="timeline-delta-summary" id="debugDeltaSummary">No variable changes</div>
+                </div>
+            </div>
+        </main>
+
+        <!-- VIEW 3: HISTORY WORKSPACE -->
+        <main class="view-container" id="viewHistory">
+            <div class="history-workspace-layout">
+                <div class="history-top-bar">
+                    <div class="history-top-left">
+                        <span class="history-main-title">Execution History</span>
+                    </div>
+                    <div class="history-filters">
+                        <input type="text" id="historySearchInput" placeholder="Search execution history..." class="history-search-input">
+                        <div class="filter-chips">
+                            <button class="chip active" data-history-filter="ALL">All Runs</button>
+                            <button class="chip" data-history-filter="SUCCESS">Success</button>
+                            <button class="chip" data-history-filter="FAILED">Failed</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="history-runs-grid" id="historyRunsContainer">
+                    <!-- Dynamic execution cards with prominent clickable titles -->
+                </div>
+            </div>
+        </main>
+
+        <!-- VIEW 4: HISTORICAL EXECUTION VIEW (READ ONLY) -->
+        <main class="view-container" id="viewHistoricalRun">
+            <div class="historical-run-layout">
+                <!-- Historical Subheader Banner -->
+                <div class="historical-subheader">
+                    <div class="historical-title-box">
+                        <span class="readonly-badge">🔒 READ ONLY</span>
+                        <span class="hist-run-title" id="histRunTitle">5 Digit Palindrome — Run #1</span>
+                    </div>
+                    <div class="historical-actions">
+                        <button id="btnHistCopyToWorkspace" class="btn btn-primary btn-xs">📋 Copy to Workspace</button>
+                    </div>
+                </div>
+
+                <!-- Split: Immutable Source vs Stored Output -->
+                <div class="historical-split">
+                    <!-- Left: Immutable Source Snapshot -->
+                    <div class="hist-source-panel">
+                        <div class="pane-toolbar">
+                            <span class="pane-title">IMMUTABLE SOURCE SNAPSHOT</span>
+                            <span class="source-line-indicator" id="histCurrentLineIndicator">Line: -</span>
+                        </div>
+                        <div class="debug-code-box">
+                            <div class="editor-gutter" id="histGutter"></div>
+                            <pre class="debug-source-code" id="histSourceCode"></pre>
+                        </div>
+                    </div>
+
+                    <!-- Right: Stored Output & Execution Metrics -->
+                    <div class="hist-output-panel">
+                        <div class="pane-toolbar">
+                            <span class="pane-title">STORED EXECUTION OUTPUT (NO RERUN)</span>
+                            <span class="meta-tag" id="histOutputStatus">SUCCESS</span>
+                        </div>
+                        <div class="console-body">
+                            <pre class="console-stdout" id="histStoredStdout"></pre>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Historical Variables & Watch Strip -->
+                <div class="hist-vars-strip">
+                    <div class="hist-vars-box" id="histVarsContainer">
+                        <!-- Dynamic variables at historical step -->
+                    </div>
+                </div>
+
+                <!-- Compact Historical Timeline Controller -->
+                <div class="debug-timeline-bar">
+                    <div class="timeline-step-badge" id="histStepBadge">STEP 1 / 39</div>
+
+                    <div class="timeline-nav-group">
+                        <button id="btnHistFirst" class="btn-step">⏮ First</button>
+                        <button id="btnHistPrev" class="btn-step">◀ Prev</button>
+                        <button id="btnHistNext" class="btn-step">▶ Next</button>
+                        <button id="btnHistLast" class="btn-step">⏭ Last</button>
+                    </div>
+
+                    <div class="timeline-slider-box">
+                        <input type="range" id="histSlider" min="1" max="1" value="1" class="step-slider">
+                    </div>
+
+                    <div class="timeline-delta-summary" id="histDeltaSummary">Replaying stored execution deltas</div>
+                </div>
+            </div>
+        </main>
+
+        <!-- MODAL: NEW PROGRAM -->
+        <div class="modal-backdrop hidden" id="modalNewProgram">
+            <div class="modal-card">
+                <div class="modal-header">
+                    <h3>Create New Program</h3>
+                    <button class="btn-close" id="btnCloseNewProg">✕</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="inputNewProgName">Program Name <span class="text-danger">*</span></label>
+                        <input type="text" id="inputNewProgName" placeholder="e.g. 5 Digit Palindrome" class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label for="inputNewProgDesc">Description</label>
+                        <input type="text" id="inputNewProgDesc" placeholder="Brief program logic summary..." class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label for="selectNewProgTemplate">Template</label>
+                        <select id="selectNewProgTemplate" class="form-input">
+                            <option value="palindrome">5 Digit Palindrome</option>
+                            <option value="factorial">Factorials & Mutable List</option>
+                            <option value="fibonacci">Fibonacci & Recursion</option>
+                            <option value="calculator">Dictionary Calculator</option>
+                            <option value="empty">Empty Script</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary btn-sm" id="btnCancelNewProg">Cancel</button>
+                    <button class="btn btn-primary btn-sm" id="btnSubmitNewProg">Create Program</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL: WATCH VARIABLE INPUT -->
+        <div class="modal-backdrop hidden" id="modalWatchPrompt">
+            <div class="modal-card modal-sm">
+                <div class="modal-header">
+                    <h3>Watch Variable</h3>
+                    <button class="btn-close" id="btnCloseWatchModal">✕</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="inputWatchVarName">Variable Identifier</label>
+                        <input type="text" id="inputWatchVarName" placeholder="e.g. reverse, total, results" class="form-input">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary btn-sm" id="btnCancelWatchModal">Cancel</button>
+                    <button class="btn btn-primary btn-sm" id="btnSubmitWatchModal">Add Watch</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Toast Notifications Container -->
+        <div class="toast-container" id="toastContainer"></div>
+    </div>
+
+    <!-- Application Script -->
+    <script src="/app.js"></script>
+</body>
+</html>
