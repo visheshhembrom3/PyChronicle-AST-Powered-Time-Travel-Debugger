@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+
+{% block title %}Sign Up — PyChronicle Time-Travel Debugger{% endblock %}
+
+{% block content %}
+<div class="auth-wrapper">
+    <div class="auth-card auth-card-wide">
+        <div class="auth-header">
+            <div class="auth-logo-badge">⚡</div>
+            <h1 class="auth-title">Create Account</h1>
+            <p class="auth-subtitle">Join PyChronicle Developer Workspace</p>
+        </div>
+
+        {% if error %}
+            <div class="form-alert form-alert-error" id="signup-error-alert">
+                <span>⚠</span> {{ error }}
+            </div>
+        {% endif %}
+
+        <form method="POST" action="{{ url_for('auth.signup') }}" class="auth-form" id="signup-form">
+            <div class="form-group">
+                <label for="name" class="form-label">Full Name</label>
+                <input 
+                    type="text" 
+                    id="name" 
+                    name="name" 
+                    class="form-input" 
+                    value="{{ form_data.name }}" 
+                    placeholder="Ada Lovelace" 
+                    required 
+                    maxlength="100"
+                    autofocus
+                >
+            </div>
+
+            <div class="form-group">
+                <label for="email" class="form-label">Email Address</label>
+                <input 
+                    type="email" 
+                    id="email" 
+                    name="email" 
+                    class="form-input" 
+                    value="{{ form_data.email }}" 
+                    placeholder="ada@example.com" 
+                    required
+                >
+            </div>
+
+            <div class="form-row">
+                <div class="form-group form-col">
+                    <label for="gender" class="form-label">Gender</label>
+                    <select id="gender" name="gender" class="form-select" required>
+                        <option value="" disabled {% if not form_data.gender %}selected{% endif %}>Select Gender ▼</option>
+                        {% for g_opt in valid_genders %}
+                            <option value="{{ g_opt }}" {% if form_data.gender == g_opt %}selected{% endif %}>{{ g_opt }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="form-group form-col">
+                    <label for="dob" class="form-label">Date of Birth</label>
+                    <input 
+                        type="date" 
+                        id="dob" 
+                        name="dob" 
+                        class="form-input" 
+                        value="{{ form_data.dob }}" 
+                        placeholder="YYYY-MM-DD" 
+                        required
+                    >
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group form-col">
+                    <label for="password" class="form-label">Password <span class="label-hint">(min 6 chars)</span></label>
+                    <input 
+                        type="password" 
+                        id="password" 
+                        name="password" 
+                        class="form-input" 
+                        placeholder="••••••••" 
+                        minlength="6"
+                        required
+                    >
+                </div>
+
+                <div class="form-group form-col">
+                    <label for="confirm_password" class="form-label">Confirm Password</label>
+                    <input 
+                        type="password" 
+                        id="confirm_password" 
+                        name="confirm_password" 
+                        class="form-input" 
+                        placeholder="••••••••" 
+                        minlength="6"
+                        required
+                    >
+                </div>
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary btn-block btn-lg" id="signup-submit-btn">
+                    SIGN UP
+                </button>
+            </div>
+
+            <div class="auth-footer-note">
+                Already have an account? 
+                <a href="{{ url_for('auth.login') }}" class="link-primary" id="login-nav-link">Login</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

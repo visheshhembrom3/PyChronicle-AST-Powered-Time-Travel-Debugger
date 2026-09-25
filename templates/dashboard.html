@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard — PyChronicle{% endblock %}
+
+{% block content %}
+<div class="dashboard-wrapper">
+    <!-- Welcome Header -->
+    <div class="dashboard-header">
+        <div class="dashboard-welcome">
+            <h1 class="welcome-heading">Welcome, <span class="text-accent">{{ user.name }}</span></h1>
+            <p class="welcome-sub">PyChronicle AST-Powered Python Time-Travel Debugger</p>
+        </div>
+        <div class="dashboard-actions">
+            <a href="{{ url_for('routes.workspace') }}" class="btn btn-primary" id="btn-new-program">
+                + New Program
+            </a>
+            <a href="{{ url_for('routes.history') }}" class="btn btn-secondary" id="btn-open-history">
+                📜 Open History
+            </a>
+        </div>
+    </div>
+
+    <!-- Stats Summary Bar -->
+    <div class="stats-bar">
+        <div class="stat-item">
+            <span class="stat-label">Total Programs:</span>
+            <span class="stat-value text-accent" id="stat-total-programs">{{ total_programs }}</span>
+        </div>
+        <div class="stat-divider">|</div>
+        <div class="stat-item">
+            <span class="stat-label">Total Executions:</span>
+            <span class="stat-value text-accent" id="stat-total-executions">{{ total_executions }}</span>
+        </div>
+    </div>
+
+    <!-- Main Dashboard Grid -->
+    <div class="dashboard-grid">
+        <!-- Recent Programs Section -->
+        <section class="dashboard-section" id="section-recent-programs">
+            <div class="section-header">
+                <h2 class="section-title">Recent Programs</h2>
+                <a href="{{ url_for('routes.workspace') }}" class="section-link">Open Workspace →</a>
+            </div>
+
+            {% if recent_programs %}
+                <div class="program-list">
+                    {% for prog in recent_programs %}
+                        <div class="program-card" id="program-card-{{ prog.id }}">
+                            <div class="program-card-main">
+                                <a href="{{ url_for('routes.workspace', program_id=prog.id) }}" class="program-card-title">
+                                    {{ prog.name }}
+                                </a>
+                                {% if prog.description %}
+                                    <p class="program-card-desc">{{ prog.description }}</p>
+                                {% endif %}
+                                <div class="program-card-meta">
+                                    <span class="meta-tag">v{{ prog.version_count }}</span>
+                                    <span class="meta-tag">{{ prog.run_count }} runs</span>
+                                    <span class="meta-date">Updated: {{ prog.updated_at[:10] }}</span>
+                                </div>
+                            </div>
+                            <div class="program-card-actions">
+                                <a href="{{ url_for('routes.workspace', program_id=prog.id) }}" class="btn btn-xs btn-secondary" title="Edit in Workspace">
+                                    Edit
+                                </a>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="empty-state">
+                    <p>No programs created yet.</p>
+                    <a href="{{ url_for('routes.workspace') }}" class="btn btn-primary btn-sm mt-2">Create First Program</a>
+                </div>
+            {% endif %}
+        </section>
+
+        <!-- Recent Executions Section -->
+        <section class="dashboard-section" id="section-recent-executions">
+            <div class="section-header">
+                <h2 class="section-title">Recent Executions</h2>
+                <a href="{{ url_for('routes.history') }}" class="section-link">View All History →</a>
+            </div>
+
+            {% if recent_executions %}
+                <div class="table-responsive">
+                    <table class="data-table" id="dashboard-executions-table">
+                        <thead>
+                            <tr>
+                                <th>Program</th>
+                                <th>Date</th>
+                                <th>Status</th>
+                                <th>Steps</th>
+                                <th class="text-right">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for exec_item in recent_executions %}
+                                <tr>
+                                    <td class="font-mono text-accent">
+                                        {{ exec_item.program_name }}
+                                    </td>
+                                    <td class="text-muted">{{ exec_item.started_at[:16].replace('T', ' ') }}</td>
+                                    <td>
+                                        <span class="badge badge-{{ 'success' if exec_item.status == 'SUCCESS' else ('error' if 'ERROR' in exec_item.status else 'warning') }}">
+                                            {{ exec_item.status }}
+                                        </span>
+                                    </td>
+                                    <td>{{ exec_item.step_count or 0 }}</td>
+                                    <td class="text-right">
+                                        {% if exec_item.debug_session_id %}
+                                            <a href="{{ url_for('routes.debug_view', execution_id=exec_item.id) }}" class="btn btn-xs btn-primary" title="Debug Execution">
+                                                Debug
+                                            </a>
+                                        {% else %}
+                                            <a href="{{ url_for('routes.historical_execution', execution_id=exec_item.id) }}" class="btn btn-xs btn-secondary">
+                                                View
+                                            </a>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="empty-state">
+                    <p>No execution records yet. Run your code from the workspace to record debug traces.</p>
+                </div>
+            {% endif %}
+        </section>
+    </div>
+</div>
+{% endblock %}

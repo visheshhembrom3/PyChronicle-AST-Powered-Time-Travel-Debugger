@@ -87,6 +87,7 @@ class ApplicationService:
         name: str,
         source_code: str,
         program_id: Optional[int] = None,
+        user_id: Optional[int] = None,
     ) -> None:
         """Validate program name, duplicate checks, and Python code syntax."""
         if not name or not name.strip():
@@ -97,7 +98,7 @@ class ApplicationService:
             raise ValueError("Program name cannot exceed 255 characters.")
 
         # Check for duplicate name
-        existing = self.storage.get_program_by_name(clean_name)
+        existing = self.storage.get_program_by_name(clean_name, user_id=user_id)
         if existing and (program_id is None or existing["id"] != program_id):
             raise ValueError(f"A program named '{clean_name}' already exists.")
 
@@ -122,16 +123,18 @@ class ApplicationService:
         name: str,
         source_code: str,
         description: Optional[str] = "",
+        user_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Create a new program with initial version."""
         clean_name = name.strip()
-        self.validate_program_input(clean_name, source_code)
+        self.validate_program_input(clean_name, source_code, user_id=user_id)
         prog_id = self.storage.create_program(
             name=clean_name,
             source_code=source_code,
             description=description.strip() if description else "",
+            user_id=user_id,
         )
-        prog = self.storage.get_program(prog_id)
+        prog = self.storage.get_program(prog_id, user_id=user_id)
         if not prog:
             raise StorageError(f"Failed to fetch newly created program {prog_id}.")
         return prog
@@ -142,9 +145,10 @@ class ApplicationService:
         name: Optional[str] = None,
         description: Optional[str] = None,
         source_code: Optional[str] = None,
+        user_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Update program metadata and create a new version if source changed."""
-        prog = self.storage.get_program(program_id)
+        prog = self.storage.get_program(program_id, user_id=user_id)
         if not prog:
             raise ValueError(f"Program with ID {program_id} not found.")
 
@@ -152,48 +156,51 @@ class ApplicationService:
         target_code = source_code if source_code is not None else prog["source_code"]
         target_desc = description.strip() if description is not None else prog["description"]
 
-        self.validate_program_input(target_name, target_code, program_id=program_id)
+        self.validate_program_input(target_name, target_code, program_id=program_id, user_id=user_id)
 
         self.storage.update_program(
             program_id=program_id,
             name=target_name,
             description=target_desc,
             source_code=target_code,
+            user_id=user_id,
         )
 
-        updated = self.storage.get_program(program_id)
+        updated = self.storage.get_program(program_id, user_id=user_id)
         if not updated:
             raise StorageError(f"Failed to fetch updated program {program_id}.")
         return updated
 
-    def get_program(self, program_id: int) -> Optional[Dict[str, Any]]:
+    def get_program(self, program_id: int, user_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """Retrieve program by ID."""
-        return self.storage.get_program(program_id)
+        return self.storage.get_program(program_id, user_id=user_id)
 
     def list_programs(
         self,
         search_query: Optional[str] = None,
         status_filter: Optional[str] = None,
         sort_by: Optional[str] = "updated_desc",
+        user_id: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """List programs with filtering, search query matching, and sorting."""
         return self.storage.list_programs(
             search_query=search_query,
             status_filter=status_filter,
             sort_by=sort_by,
+            user_id=user_id,
         )
 
-    def delete_program(self, program_id: int) -> bool:
+    def delete_program(self, program_id: int, user_id: Optional[int] = None) -> bool:
         """Atomically delete a program and all its child versions, executions, and debug traces."""
-        prog = self.storage.get_program(program_id)
+        prog = self.storage.get_program(program_id, user_id=user_id)
         if not prog:
             return False
-        return self.storage.delete_program(program_id)
+        return self.storage.delete_program(program_id, user_id=user_id)
 
-    def duplicate_program(self, program_id: int, new_name: Optional[str] = None) -> Dict[str, Any]:
+    def duplicate_program(self, program_id: int, new_name: Optional[str] = None, user_id: Optional[int] = None) -> Dict[str, Any]:
         """Duplicate an existing program without copying its execution history."""
-        new_id = self.storage.duplicate_program(program_id, new_name=new_name)
-        new_prog = self.storage.get_program(new_id)
+        new_id = self.storage.duplicate_program(program_id, new_name=new_name, user_id=user_id)
+        new_prog = self.storage.get_program(new_id, user_id=user_id)
         if not new_prog:
             raise StorageError(f"Failed to fetch duplicated program {new_id}.")
         return new_prog
@@ -211,13 +218,14 @@ class ApplicationService:
         program_id: int,
         source_override: Optional[str] = None,
         watch_vars: Optional[List[str]] = None,
+        user_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Execute and trace a program through the canonical PyChronicle backend.
 
         Captures stdout, stderr, execution duration, registers an immutable execution record,
         links the debug session, and returns structured execution and timeline data.
         """
-        prog = self.storage.get_program(program_id)
+        prog = self.storage.get_program(program_id, user_id=user_id)
         if not prog:
             raise ValueError(f"Program ID {program_id} does not exist.")
 
@@ -335,9 +343,9 @@ class ApplicationService:
             "watch_values": watch_vals,
         }
 
-    def get_execution(self, execution_id: int) -> Optional[Dict[str, Any]]:
+    def get_execution(self, execution_id: int, user_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """Retrieve execution record by ID including its timeline and step count."""
-        record = self.storage.get_execution(execution_id)
+        record = self.storage.get_execution(execution_id, user_id=user_id)
         if not record:
             return None
 
@@ -352,31 +360,34 @@ class ApplicationService:
         record["timeline"] = timeline
         return record
 
-    def list_executions(self, program_id: int) -> List[Dict[str, Any]]:
+    def list_executions(self, program_id: int, user_id: Optional[int] = None) -> List[Dict[str, Any]]:
         """List all execution records for a program ordered newest first."""
-        return self.storage.list_executions_for_program(program_id)
+        return self.storage.list_executions_for_program(program_id, user_id=user_id)
 
     def list_all_executions(
         self,
         search_query: Optional[str] = None,
         status_filter: Optional[str] = None,
         sort_by: Optional[str] = "started_desc",
+        user_id: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """List all recorded executions across all programs with search, status filtering, and sorting."""
         return self.storage.list_all_executions(
             search_query=search_query,
             status_filter=status_filter,
             sort_by=sort_by,
+            user_id=user_id,
         )
 
     def copy_execution_to_workspace(
         self,
         execution_id: int,
         new_name: Optional[str] = None,
+        user_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Create a new editable program in the workspace using a historical execution's source snapshot."""
-        new_prog_id = self.storage.copy_execution_to_program(execution_id, new_name=new_name)
-        new_prog = self.storage.get_program(new_prog_id)
+        new_prog_id = self.storage.copy_execution_to_program(execution_id, new_name=new_name, user_id=user_id)
+        new_prog = self.storage.get_program(new_prog_id, user_id=user_id)
         if not new_prog:
             raise StorageError(f"Failed to fetch copied program {new_prog_id}.")
         return new_prog

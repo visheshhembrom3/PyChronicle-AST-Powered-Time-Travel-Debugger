@@ -21,47 +21,85 @@ class SQLiteStorage:
     """Manages SQLite storage for PyChronicle programs, versions, executions, sessions, and snapshots."""
 
     def __init__(self, db_path: Path | str = DEFAULT_DB_PATH) -> None:
-        self.db_path = Path(db_path)
-        # Ensure parent directory exists
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.is_memory = str(db_path) == ":memory:" or "mode=memory" in str(db_path)
+        if self.is_memory:
+            self.db_path = Path(":memory:")
+            self._mem_conn: Optional[sqlite3.Connection] = sqlite3.connect(
+                "file:pychronicle_storage_shared_mem?mode=memory&cache=shared",
+                uri=True,
+                check_same_thread=False,
+            )
+            self._mem_conn.row_factory = sqlite3.Row
+            self._mem_conn.execute("PRAGMA foreign_keys = ON;")
+        else:
+            self.db_path = Path(db_path)
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+            self._mem_conn = None
         self.init_db()
 
     @contextmanager
     def _get_connection(self) -> Generator[sqlite3.Connection, None, None]:
         """Create and yield a configured sqlite3 connection, ensuring it is closed upon exit."""
-        conn = None
-        try:
-            conn = sqlite3.connect(str(self.db_path))
-            conn.row_factory = sqlite3.Row
-            conn.execute("PRAGMA foreign_keys = ON;")
-            conn.execute("PRAGMA journal_mode = WAL;")
-        except sqlite3.Error as e:
-            raise StorageError(
-                message=f"Failed to connect to SQLite database: {e}",
-                db_path=str(self.db_path),
-                details=str(e),
-            ) from e
-        try:
-            yield conn
-        finally:
-            if conn:
-                try:
-                    conn.close()
-                except Exception:
-                    pass
+        if self.is_memory and self._mem_conn is not None:
+            yield self._mem_conn
+        else:
+            conn = None
+            try:
+                conn = sqlite3.connect(str(self.db_path))
+                conn.row_factory = sqlite3.Row
+                conn.execute("PRAGMA foreign_keys = ON;")
+                conn.execute("PRAGMA journal_mode = WAL;")
+            except sqlite3.Error as e:
+                raise StorageError(
+                    message=f"Failed to connect to SQLite database: {e}",
+                    db_path=str(self.db_path),
+                    details=str(e),
+                ) from e
+            try:
+                yield conn
+            finally:
+                if conn:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+
 
     def init_db(self) -> None:
         """Initialize database schema if it doesn't already exist."""
         schema_sql = """
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL UNIQUE,
+            gender TEXT NOT NULL,
+            dob TEXT NOT NULL,
+            password_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS password_resets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            token TEXT NOT NULL UNIQUE,
+            expires_at TEXT NOT NULL,
+            used INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+
         CREATE TABLE IF NOT EXISTS programs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL UNIQUE,
+            name TEXT NOT NULL,
             description TEXT,
             source_code TEXT NOT NULL,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             last_run_at TEXT,
-            last_status TEXT DEFAULT 'NEVER_RUN'
+            last_status TEXT DEFAULT 'NEVER_RUN',
+            user_id INTEGER,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
         );
 
         CREATE TABLE IF NOT EXISTS program_versions (
@@ -115,18 +153,46 @@ class SQLiteStorage:
             FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
         );
 
-        CREATE INDEX IF NOT EXISTS idx_snapshots_session_step 
-        ON snapshots(session_id, step);
-
-        CREATE INDEX IF NOT EXISTS idx_program_versions_prog_ver 
-        ON program_versions(program_id, version_number);
-
-        CREATE INDEX IF NOT EXISTS idx_executions_prog_date 
-        ON executions(program_id, started_at);
+        CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+        CREATE INDEX IF NOT EXISTS idx_password_resets_token ON password_resets(token);
+        CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id);
+        CREATE INDEX IF NOT EXISTS idx_snapshots_session_step ON snapshots(session_id, step);
+        CREATE INDEX IF NOT EXISTS idx_program_versions_prog_ver ON program_versions(program_id, version_number);
+        CREATE INDEX IF NOT EXISTS idx_executions_prog_date ON executions(program_id, started_at);
         """
         try:
             with self._get_connection() as conn:
                 conn.executescript(schema_sql)
+                # Check for migration of existing programs table
+                prog_sql_row = conn.execute("SELECT sql FROM sqlite_master WHERE name='programs' AND type='table';").fetchone()
+                if prog_sql_row and "UNIQUE" in prog_sql_row[0]:
+                    conn.execute("PRAGMA foreign_keys=OFF;")
+                    conn.execute("""
+                        CREATE TABLE IF NOT EXISTS programs_migration (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            name TEXT NOT NULL,
+                            description TEXT,
+                            source_code TEXT NOT NULL,
+                            created_at TEXT NOT NULL,
+                            updated_at TEXT NOT NULL,
+                            last_run_at TEXT,
+                            last_status TEXT DEFAULT 'NEVER_RUN',
+                            user_id INTEGER,
+                            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                        );
+                    """)
+                    conn.execute("""
+                        INSERT INTO programs_migration (id, name, description, source_code, created_at, updated_at, last_run_at, last_status, user_id)
+                        SELECT id, name, description, source_code, created_at, updated_at, last_run_at, last_status, user_id FROM programs;
+                    """)
+                    conn.execute("DROP TABLE programs;")
+                    conn.execute("ALTER TABLE programs_migration RENAME TO programs;")
+                    conn.execute("PRAGMA foreign_keys=ON;")
+
+                prog_cols = [row[1] for row in conn.execute("PRAGMA table_info(programs);").fetchall()]
+                if "user_id" not in prog_cols:
+                    conn.execute("ALTER TABLE programs ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;")
+                conn.commit()
         except sqlite3.Error as e:
             raise StorageError(
                 message=f"Failed to initialize database schema: {e}",
@@ -143,17 +209,29 @@ class SQLiteStorage:
         name: str,
         source_code: str,
         description: Optional[str] = None,
+        user_id: Optional[int] = None,
     ) -> int:
         """Create a new program and its initial version in a single transaction."""
         now = datetime.now().isoformat()
         try:
             with self._get_connection() as conn:
+                # Check for duplicate program name for this user scope
+                if user_id is not None:
+                    check_cur = conn.execute("SELECT id FROM programs WHERE name = ? AND user_id = ?;", (name, user_id))
+                else:
+                    check_cur = conn.execute("SELECT id FROM programs WHERE name = ?;", (name,))
+                if check_cur.fetchone():
+                    raise StorageError(
+                        message=f"A program named '{name}' already exists.",
+                        db_path=str(self.db_path),
+                    )
+
                 cursor = conn.execute(
                     """
-                    INSERT INTO programs (name, description, source_code, created_at, updated_at, last_status)
-                    VALUES (?, ?, ?, ?, ?, 'NEVER_RUN');
+                    INSERT INTO programs (name, description, source_code, created_at, updated_at, last_status, user_id)
+                    VALUES (?, ?, ?, ?, ?, 'NEVER_RUN', ?);
                     """,
-                    (name, description or "", source_code, now, now),
+                    (name, description or "", source_code, now, now, user_id),
                 )
                 program_id = cursor.lastrowid
                 if program_id is None:
@@ -174,6 +252,8 @@ class SQLiteStorage:
                 db_path=str(self.db_path),
                 details=str(e),
             ) from e
+        except StorageError:
+            raise
         except sqlite3.Error as e:
             raise StorageError(
                 message=f"Failed to create program '{name}': {e}",
@@ -181,7 +261,7 @@ class SQLiteStorage:
                 details=str(e),
             ) from e
 
-    def get_program(self, program_id: int) -> Optional[Dict[str, Any]]:
+    def get_program(self, program_id: int, user_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """Fetch a program record by ID along with latest version and run metrics."""
         query = """
         SELECT 
@@ -193,17 +273,22 @@ class SQLiteStorage:
             p.updated_at,
             p.last_run_at,
             p.last_status,
+            p.user_id,
             COUNT(DISTINCT v.id) as version_count,
             COUNT(DISTINCT e.id) as run_count
         FROM programs p
         LEFT JOIN program_versions v ON p.id = v.program_id
         LEFT JOIN executions e ON p.id = e.program_id
         WHERE p.id = ?
-        GROUP BY p.id;
         """
+        params: List[Any] = [program_id]
+        if user_id is not None:
+            query += " AND (p.user_id = ? OR p.user_id IS NULL) "
+            params.append(user_id)
+        query += " GROUP BY p.id;"
         try:
             with self._get_connection() as conn:
-                cursor = conn.execute(query, (program_id,))
+                cursor = conn.execute(query, params)
                 row = cursor.fetchone()
                 if row is None:
                     return None
@@ -215,7 +300,7 @@ class SQLiteStorage:
                 details=str(e),
             ) from e
 
-    def get_program_by_name(self, name: str) -> Optional[Dict[str, Any]]:
+    def get_program_by_name(self, name: str, user_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """Fetch a program record by unique name."""
         query = """
         SELECT 
@@ -227,17 +312,24 @@ class SQLiteStorage:
             p.updated_at,
             p.last_run_at,
             p.last_status,
+            p.user_id,
             COUNT(DISTINCT v.id) as version_count,
             COUNT(DISTINCT e.id) as run_count
         FROM programs p
         LEFT JOIN program_versions v ON p.id = v.program_id
         LEFT JOIN executions e ON p.id = e.program_id
         WHERE p.name = ?
-        GROUP BY p.id;
         """
+        params: List[Any] = [name]
+        if user_id is not None:
+            query += " AND p.user_id = ? "
+            params.append(user_id)
+        else:
+            query += " AND p.user_id IS NULL "
+        query += " GROUP BY p.id;"
         try:
             with self._get_connection() as conn:
-                cursor = conn.execute(query, (name,))
+                cursor = conn.execute(query, params)
                 row = cursor.fetchone()
                 if row is None:
                     return None
@@ -255,6 +347,7 @@ class SQLiteStorage:
         name: Optional[str] = None,
         description: Optional[str] = None,
         source_code: Optional[str] = None,
+        user_id: Optional[int] = None,
     ) -> bool:
         """Update program metadata. If source_code has changed, archive a new version."""
         now = datetime.now().isoformat()
@@ -262,11 +355,14 @@ class SQLiteStorage:
             with self._get_connection() as conn:
                 # Fetch existing program
                 cur = conn.execute(
-                    "SELECT name, description, source_code FROM programs WHERE id = ?;",
+                    "SELECT name, description, source_code, user_id FROM programs WHERE id = ?;",
                     (program_id,),
                 )
                 row = cur.fetchone()
                 if not row:
+                    return False
+
+                if user_id is not None and row["user_id"] is not None and row["user_id"] != user_id:
                     return False
 
                 current_name = row["name"]
@@ -319,10 +415,18 @@ class SQLiteStorage:
                 details=str(e),
             ) from e
 
-    def delete_program(self, program_id: int) -> bool:
+    def delete_program(self, program_id: int, user_id: Optional[int] = None) -> bool:
         """Atomically delete a program and all associated versions, executions, debug sessions, and snapshots."""
         try:
             with self._get_connection() as conn:
+                if user_id is not None:
+                    check_cur = conn.execute("SELECT user_id FROM programs WHERE id = ?;", (program_id,))
+                    p_row = check_cur.fetchone()
+                    if not p_row:
+                        return False
+                    if p_row["user_id"] is not None and p_row["user_id"] != user_id:
+                        return False
+
                 # Find associated debug sessions to remove cleanly
                 cursor = conn.execute(
                     "SELECT debug_session_id FROM executions WHERE program_id = ? AND debug_session_id IS NOT NULL;",
@@ -346,17 +450,19 @@ class SQLiteStorage:
                 details=str(e),
             ) from e
 
-    def duplicate_program(self, program_id: int, new_name: Optional[str] = None) -> int:
+    def duplicate_program(self, program_id: int, new_name: Optional[str] = None, user_id: Optional[int] = None) -> int:
         """Duplicate an existing program into a new program without copying execution history."""
-        prog = self.get_program(program_id)
+        prog = self.get_program(program_id, user_id=user_id)
         if not prog:
             raise StorageError(f"Cannot duplicate non-existent program {program_id}.")
+
+        effective_user_id = user_id if user_id is not None else prog.get("user_id")
 
         if not new_name:
             base_name = f"{prog['name']} Copy"
             new_name = base_name
             counter = 1
-            while self.get_program_by_name(new_name) is not None:
+            while self.get_program_by_name(new_name, user_id=effective_user_id) is not None:
                 counter += 1
                 new_name = f"{base_name} {counter}"
 
@@ -365,6 +471,7 @@ class SQLiteStorage:
             name=new_name,
             source_code=prog["source_code"],
             description=desc,
+            user_id=effective_user_id,
         )
 
     def list_programs(
@@ -372,6 +479,7 @@ class SQLiteStorage:
         search_query: Optional[str] = None,
         status_filter: Optional[str] = None,
         sort_by: Optional[str] = "updated_desc",
+        user_id: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """List programs with filtering, search query matching, and sorting."""
         query = """
@@ -384,6 +492,7 @@ class SQLiteStorage:
             p.updated_at,
             p.last_run_at,
             p.last_status,
+            p.user_id,
             COUNT(DISTINCT v.id) as version_count,
             COUNT(DISTINCT e.id) as run_count
         FROM programs p
@@ -392,6 +501,10 @@ class SQLiteStorage:
         """
         where_clauses = []
         params: List[Any] = []
+
+        if user_id is not None:
+            where_clauses.append("(p.user_id = ? OR p.user_id IS NULL)")
+            params.append(user_id)
 
         if search_query:
             q_like = f"%{search_query.strip()}%"
@@ -610,13 +723,14 @@ class SQLiteStorage:
                 details=str(e),
             ) from e
 
-    def get_execution(self, execution_id: int) -> Optional[Dict[str, Any]]:
+    def get_execution(self, execution_id: int, user_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """Retrieve an execution record by ID with program and version metadata."""
         query = """
         SELECT 
             e.id,
             e.program_id,
             p.name as program_name,
+            p.user_id as user_id,
             e.version_id,
             v.version_number,
             e.debug_session_id,
@@ -637,11 +751,15 @@ class SQLiteStorage:
         LEFT JOIN sessions s ON e.debug_session_id = s.id
         LEFT JOIN snapshots sn ON s.id = sn.session_id
         WHERE e.id = ?
-        GROUP BY e.id;
         """
+        params: List[Any] = [execution_id]
+        if user_id is not None:
+            query += " AND (p.user_id = ? OR p.user_id IS NULL) "
+            params.append(user_id)
+        query += " GROUP BY e.id;"
         try:
             with self._get_connection() as conn:
-                cursor = conn.execute(query, (execution_id,))
+                cursor = conn.execute(query, params)
                 row = cursor.fetchone()
                 return dict(row) if row else None
         except sqlite3.Error as e:
@@ -651,12 +769,14 @@ class SQLiteStorage:
                 details=str(e),
             ) from e
 
-    def list_executions_for_program(self, program_id: int) -> List[Dict[str, Any]]:
+    def list_executions_for_program(self, program_id: int, user_id: Optional[int] = None) -> List[Dict[str, Any]]:
         """Retrieve all execution runs for a program ordered newest first."""
         query = """
         SELECT 
             e.id,
             e.program_id,
+            p.name as program_name,
+            p.user_id as user_id,
             e.version_id,
             v.version_number,
             e.debug_session_id,
@@ -670,16 +790,20 @@ class SQLiteStorage:
             e.source_snapshot,
             COUNT(sn.id) as step_count
         FROM executions e
+        JOIN programs p ON e.program_id = p.id
         LEFT JOIN program_versions v ON e.version_id = v.id
         LEFT JOIN sessions s ON e.debug_session_id = s.id
         LEFT JOIN snapshots sn ON s.id = sn.session_id
         WHERE e.program_id = ?
-        GROUP BY e.id
-        ORDER BY e.id DESC;
         """
+        params: List[Any] = [program_id]
+        if user_id is not None:
+            query += " AND (p.user_id = ? OR p.user_id IS NULL) "
+            params.append(user_id)
+        query += " GROUP BY e.id ORDER BY e.id DESC;"
         try:
             with self._get_connection() as conn:
-                cursor = conn.execute(query, (program_id,))
+                cursor = conn.execute(query, params)
                 return [dict(row) for row in cursor.fetchall()]
         except sqlite3.Error as e:
             raise StorageError(
@@ -688,9 +812,9 @@ class SQLiteStorage:
                 details=str(e),
             ) from e
 
-    def get_latest_execution(self, program_id: int) -> Optional[Dict[str, Any]]:
+    def get_latest_execution(self, program_id: int, user_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """Retrieve the most recent execution record for a program."""
-        execs = self.list_executions_for_program(program_id)
+        execs = self.list_executions_for_program(program_id, user_id=user_id)
         return execs[0] if execs else None
 
     def list_all_executions(
@@ -698,6 +822,7 @@ class SQLiteStorage:
         search_query: Optional[str] = None,
         status_filter: Optional[str] = None,
         sort_by: Optional[str] = "started_desc",
+        user_id: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """Retrieve all recorded program executions across all programs with search, filter, and sorting."""
         query = """
@@ -705,6 +830,7 @@ class SQLiteStorage:
             e.id,
             e.program_id,
             p.name as program_name,
+            p.user_id as user_id,
             e.version_id,
             v.version_number,
             e.debug_session_id,
@@ -725,6 +851,10 @@ class SQLiteStorage:
         """
         where_clauses = []
         params: List[Any] = []
+
+        if user_id is not None:
+            where_clauses.append("(p.user_id = ? OR p.user_id IS NULL)")
+            params.append(user_id)
 
         if search_query:
             q_like = f"%{search_query.strip()}%"
@@ -762,17 +892,19 @@ class SQLiteStorage:
                 details=str(e),
             ) from e
 
-    def copy_execution_to_program(self, execution_id: int, new_name: Optional[str] = None) -> int:
+    def copy_execution_to_program(self, execution_id: int, new_name: Optional[str] = None, user_id: Optional[int] = None) -> int:
         """Create a new editable program based on an immutable historical execution's source snapshot."""
-        record = self.get_execution(execution_id)
+        record = self.get_execution(execution_id, user_id=user_id)
         if not record:
             raise StorageError(f"Cannot copy non-existent execution {execution_id}.")
+
+        effective_user_id = user_id if user_id is not None else record.get("user_id")
 
         if not new_name:
             base_name = f"{record['program_name']} (Copy from Run #{execution_id})"
             new_name = base_name
             counter = 1
-            while self.get_program_by_name(new_name) is not None:
+            while self.get_program_by_name(new_name, user_id=effective_user_id) is not None:
                 counter += 1
                 new_name = f"{base_name} {counter}"
 
@@ -781,6 +913,7 @@ class SQLiteStorage:
             name=new_name,
             source_code=record["source_snapshot"],
             description=desc,
+            user_id=effective_user_id,
         )
 
     # =========================================================================
@@ -972,3 +1105,181 @@ class SQLiteStorage:
                 db_path=str(self.db_path),
                 details=str(e),
             ) from e
+
+    # =========================================================================
+    # User & Authentication Management Methods
+    # =========================================================================
+
+    def create_user(
+        self,
+        name: str,
+        email: str,
+        gender: str,
+        dob: str,
+        password_hash: str,
+    ) -> int:
+        """Create a new user account with normalized lowercase email."""
+        now = datetime.now().isoformat()
+        normalized_email = email.strip().lower()
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.execute(
+                    """
+                    INSERT INTO users (name, email, gender, dob, password_hash, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?);
+                    """,
+                    (name.strip(), normalized_email, gender.strip(), dob.strip(), password_hash, now, now),
+                )
+                user_id = cursor.lastrowid
+                conn.commit()
+                if user_id is None:
+                    raise StorageError("Failed to obtain ID for created user.")
+                return user_id
+        except sqlite3.IntegrityError as e:
+            raise StorageError(
+                message="An account with this email already exists.",
+                db_path=str(self.db_path),
+                details=str(e),
+            ) from e
+        except sqlite3.Error as e:
+            raise StorageError(
+                message=f"Failed to create user: {e}",
+                db_path=str(self.db_path),
+                details=str(e),
+            ) from e
+
+    def get_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        """Retrieve user record by normalized lowercase email."""
+        normalized_email = email.strip().lower()
+        query = "SELECT id, name, email, gender, dob, password_hash, created_at, updated_at FROM users WHERE LOWER(email) = ?;"
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.execute(query, (normalized_email,))
+                row = cursor.fetchone()
+                return dict(row) if row else None
+        except sqlite3.Error as e:
+            raise StorageError(
+                message=f"Failed to fetch user by email: {e}",
+                db_path=str(self.db_path),
+                details=str(e),
+            ) from e
+
+    def get_user_by_id(self, user_id: int) -> Optional[Dict[str, Any]]:
+        """Retrieve user record by user ID."""
+        query = "SELECT id, name, email, gender, dob, password_hash, created_at, updated_at FROM users WHERE id = ?;"
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.execute(query, (user_id,))
+                row = cursor.fetchone()
+                return dict(row) if row else None
+        except sqlite3.Error as e:
+            raise StorageError(
+                message=f"Failed to fetch user {user_id}: {e}",
+                db_path=str(self.db_path),
+                details=str(e),
+            ) from e
+
+    def update_user_profile(
+        self,
+        user_id: int,
+        name: Optional[str] = None,
+        gender: Optional[str] = None,
+        dob: Optional[str] = None,
+    ) -> bool:
+        """Update user profile fields."""
+        now = datetime.now().isoformat()
+        try:
+            with self._get_connection() as conn:
+                user = self.get_user_by_id(user_id)
+                if not user:
+                    return False
+                new_name = name.strip() if name is not None else user["name"]
+                new_gender = gender.strip() if gender is not None else user["gender"]
+                new_dob = dob.strip() if dob is not None else user["dob"]
+                conn.execute(
+                    """
+                    UPDATE users
+                    SET name = ?, gender = ?, dob = ?, updated_at = ?
+                    WHERE id = ?;
+                    """,
+                    (new_name, new_gender, new_dob, now, user_id),
+                )
+                conn.commit()
+                return True
+        except sqlite3.Error as e:
+            raise StorageError(
+                message=f"Failed to update user profile: {e}",
+                db_path=str(self.db_path),
+                details=str(e),
+            ) from e
+
+    def update_user_password(self, user_id: int, password_hash: str) -> bool:
+        """Update user password hash."""
+        now = datetime.now().isoformat()
+        try:
+            with self._get_connection() as conn:
+                conn.execute(
+                    "UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?;",
+                    (password_hash, now, user_id),
+                )
+                conn.commit()
+                return True
+        except sqlite3.Error as e:
+            raise StorageError(
+                message=f"Failed to update user password: {e}",
+                db_path=str(self.db_path),
+                details=str(e),
+            ) from e
+
+    def create_password_reset(self, user_id: int, token: str, expires_at: str) -> int:
+        """Create a password reset token entry."""
+        now = datetime.now().isoformat()
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.execute(
+                    """
+                    INSERT INTO password_resets (user_id, token, expires_at, used, created_at)
+                    VALUES (?, ?, ?, 0, ?);
+                    """,
+                    (user_id, token, expires_at, now),
+                )
+                reset_id = cursor.lastrowid
+                conn.commit()
+                if reset_id is None:
+                    raise StorageError("Failed to obtain reset ID.")
+                return reset_id
+        except sqlite3.Error as e:
+            raise StorageError(
+                message=f"Failed to create password reset record: {e}",
+                db_path=str(self.db_path),
+                details=str(e),
+            ) from e
+
+    def get_password_reset(self, token: str) -> Optional[Dict[str, Any]]:
+        """Retrieve password reset token details."""
+        query = "SELECT id, user_id, token, expires_at, used, created_at FROM password_resets WHERE token = ?;"
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.execute(query, (token,))
+                row = cursor.fetchone()
+                return dict(row) if row else None
+        except sqlite3.Error as e:
+            raise StorageError(
+                message=f"Failed to fetch password reset: {e}",
+                db_path=str(self.db_path),
+                details=str(e),
+            ) from e
+
+    def mark_password_reset_used(self, reset_id: int) -> None:
+        """Mark a password reset token as used."""
+        try:
+            with self._get_connection() as conn:
+                conn.execute("UPDATE password_resets SET used = 1 WHERE id = ?;", (reset_id,))
+                conn.commit()
+        except sqlite3.Error as e:
+            raise StorageError(
+                message=f"Failed to mark password reset as used: {e}",
+                db_path=str(self.db_path),
+                details=str(e),
+            ) from e
+

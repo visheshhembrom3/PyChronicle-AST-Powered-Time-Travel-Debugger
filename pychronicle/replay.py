@@ -251,3 +251,36 @@ class ReplayEngine:
                             break
                     result[var] = found
         return result
+
+
+    def get_state_at_step(self, step: int) -> ReconstructedState:
+        """Reconstruct historical program state at the given step (1-indexed).
+
+        Alias for state_at(step).
+        """
+        return self.state_at(step)
+
+    def get_variable_history(
+        self, variable_name: str, scope: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Retrieve step-by-step history of a specific variable across time.
+
+        Args:
+            variable_name: The identifier of the variable to inspect.
+            scope: Optional scope filter.
+
+        Returns:
+            List of historical state dicts for this variable across steps.
+        """
+        history_map = self.get_watch_history([variable_name], scope=scope)
+        return history_map.get(variable_name, [])
+
+    def get_line_at_step(self, step: int) -> Optional[int]:
+        """Return the source line number corresponding to a specific execution step."""
+        state = self.state_at(step)
+        return state.line
+
+    def get_available_steps(self) -> List[int]:
+        """Return a list of all recorded step indices (1 to N)."""
+        return [s["step"] for s in self.snapshots]
+

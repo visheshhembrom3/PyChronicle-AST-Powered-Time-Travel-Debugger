@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}PyChronicle — AST-Powered Time-Travel Debugger{% endblock %}</title>
+    <!-- Modern Typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+    {% block head_extra %}{% endblock %}
+</head>
+<body class="bg-dark text-light font-sans">
+    <!-- Top Navigation Bar -->
+    <header class="top-nav">
+        <div class="nav-container">
+            <div class="nav-brand">
+                <a href="{{ url_for('routes.dashboard') if g.user else url_for('auth.login') }}" class="brand-link">
+                    <span class="brand-badge">⚡</span>
+                    <span class="brand-title">PyChronicle</span>
+                    <span class="brand-tag">Debugger</span>
+                </a>
+            </div>
+
+            <nav class="nav-actions">
+                {% if g.user %}
+                    {% block top_nav_actions %}
+                        <a href="{{ url_for('routes.dashboard') }}" class="nav-btn nav-btn-primary" id="nav-home-btn" title="Dashboard">Home</a>
+                        <a href="{{ url_for('routes.workspace') }}" class="nav-btn" id="nav-workspace-btn">Workspace</a>
+                        <a href="{{ url_for('routes.history') }}" class="nav-btn" id="nav-history-btn">History</a>
+                    {% endblock %}
+                    <div class="nav-user-menu">
+                        <a href="{{ url_for('auth.profile') }}" class="user-profile-link" title="Profile Settings">
+                            <span class="user-avatar">{{ g.user.name[0].upper() if g.user.name else 'U' }}</span>
+                            <span class="user-name">{{ g.user.name }}</span>
+                        </a>
+                        <a href="{{ url_for('auth.logout') }}" class="nav-btn nav-btn-danger" id="nav-logout-btn" title="Sign Out">Logout</a>
+                    </div>
+                {% else %}
+                    <div class="nav-auth-links">
+                        <a href="{{ url_for('auth.login') }}" class="nav-btn">Login</a>
+                        <a href="{{ url_for('auth.signup') }}" class="nav-btn nav-btn-primary">Create Account</a>
+                    </div>
+                {% endif %}
+            </nav>
+        </div>
+    </header>
+
+    <!-- Global Flash Notification Messages -->
+    <main class="main-content">
+        <div class="flash-container">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="flash-alert flash-{{ category }}">
+                            <span class="flash-icon">
+                                {% if category == 'success' %}✓{% elif category == 'danger' or category == 'error' %}⚠{% elif category == 'warning' %}!{% else %}ℹ{% endif %}
+                            </span>
+                            <span class="flash-text">{{ message }}</span>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
+            {% if error_message %}
+                <div class="flash-alert flash-danger">
+                    <span class="flash-icon">⚠</span>
+                    <span class="flash-text">{{ error_message }}</span>
+                </div>
+            {% endif %}
+        </div>
+
+        {% block content %}{% endblock %}
+    </main>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

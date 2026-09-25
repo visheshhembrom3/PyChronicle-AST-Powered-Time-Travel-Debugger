@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+
+{% block title %}Time-Travel Debugger — {{ execution.program_name }} — PyChronicle{% endblock %}
+
+{% block top_nav_actions %}
+    <a href="{{ url_for('routes.dashboard') }}" class="nav-btn nav-btn-primary" id="nav-home-btn" title="Dashboard">Home</a>
+    <a href="{{ url_for('routes.workspace', program_id=execution.program_id) }}" class="nav-btn" id="nav-workspace-btn">Workspace</a>
+    <a href="{{ url_for('routes.history') }}" class="nav-btn" id="nav-history-btn">History</a>
+{% endblock %}
+
+{% block content %}
+<div class="debugger-wrapper" id="debugger-root" 
+     data-execution-id="{{ execution.id }}" 
+     data-session-id="{{ execution.debug_session_id or '' }}"
+     data-total-steps="{{ execution.step_count or (timeline|length) }}"
+     data-is-readonly="{{ 'true' if is_readonly else 'false' }}">
+    
+    <!-- Debugger Top Control Bar -->
+    <div class="debugger-header-bar">
+        <div class="debugger-meta">
+            <span class="debugger-badge">🐞 PyChronicle Debugger</span>
+            <h2 class="debugger-program-title">{{ execution.program_name }}</h2>
+            <span class="meta-tag">Execution #{{ execution.id }}</span>
+            <span class="badge badge-{{ 'success' if execution.status == 'SUCCESS' else ('error' if 'ERROR' in execution.status else 'warning') }}">
+                {{ execution.status }}
+            </span>
+            {% if is_readonly %}
+                <span class="badge badge-muted">READ-ONLY HISTORICAL</span>
+            {% endif %}
+        </div>
+
+        <div class="debugger-header-actions">
+            {% if is_readonly %}
+                <button type="button" class="btn btn-accent btn-sm" id="btn-copy-to-workspace">
+                    📋 Copy to Workspace
+                </button>
+            {% else %}
+                <a href="{{ url_for('routes.workspace', program_id=execution.program_id) }}" class="btn btn-secondary btn-sm">
+                    ✏ Edit Code
+                </a>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Main Debugger 3-Column / Grid Layout -->
+    <div class="debugger-grid">
+        <!-- Left Column: Source Code View with Active Line Highlighting -->
+        <div class="debugger-pane debugger-pane-code">
+            <div class="pane-header">
+                <span class="pane-title">Source Code</span>
+                <span class="pane-indicator" id="current-line-indicator">Line 1</span>
+            </div>
+            <div class="source-code-viewer font-mono" id="source-code-container">
+                {% set lines = (execution.source_snapshot or '').splitlines() %}
+                <table class="source-code-table" id="source-code-table">
+                    <tbody>
+                        {% for line in lines %}
+                            <tr class="code-line-row" id="code-line-{{ loop.index }}" data-line="{{ loop.index }}">
+                                <td class="line-num">{{ loop.index }}</td>
+                                <td class="line-gutter">
+                                    <span class="line-pointer">▶</span>
+                                </td>
+                                <td class="line-content"><code>{{ line }}</code></td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Right Column: Variables, Watch Variables, and Output -->
+        <div class="debugger-pane debugger-pane-inspect">
+            <!-- Variables by Scope -->
+            <div class="inspect-subpane" id="subpane-variables">
+                <div class="pane-header">
+                    <span class="pane-title">Variables</span>
+                    <span class="pane-scope-tag" id="active-scope-tag">Scope: &lt;module&gt;</span>
+                </div>
+                <div class="variables-table-container">
+                    <table class="data-table variables-table font-mono" id="variables-table">
+                        <thead>
+                            <tr>
+                                <th>Variable</th>
+                                <th>Value</th>
+                            </tr>
+                        </thead>
+                        <tbody id="variables-table-body">
+                            {% if initial_state and initial_state.active_variables %}
+                                {% for k, v in initial_state.active_variables.items() %}
+                                    <tr>
+                                        <td class="var-name text-accent">{{ k }}</td>
+                                        <td class="var-val">{{ v }}</td>
+                                    </tr>
+                                {% endfor %}
+                            {% else %}
+                                <tr>
+                                    <td colspan="2" class="text-muted">No variables in current scope.</td>
+                                </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Watch Variables Inspector -->
+            <div class="inspect-subpane" id="subpane-watch">
+                <div class="pane-header">
+                    <span class="pane-title">Watch Variables</span>
+                    <button type="button" class="btn btn-xs btn-secondary" id="btn-toggle-watch-input">+ Add Variable</button>
+                </div>
+                
+                <div class="watch-input-box" id="watch-input-box" style="display: none;">
+                    <input type="text" id="watch-var-input" class="form-input form-input-sm font-mono" placeholder="Variable name (e.g. num, total)">
+                    <button type="button" class="btn btn-primary btn-sm" id="btn-add-watch">Add</button>
+                </div>
+
+                <div class="watch-table-container">
+                    <table class="data-table watch-table font-mono" id="watch-table">
+                        <thead>
+                            <tr>
+                                <th>Watched</th>
+                                <th>Value</th>
+                                <th class="text-right">Remove</th>
+                            </tr>
+                        </thead>
+                        <tbody id="watch-table-body">
+                            <tr id="empty-watch-row">
+                                <td colspan="3" class="text-muted">No variables being watched. Click + Add Variable above.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Program Runtime Output -->
+            <div class="inspect-subpane" id="subpane-output">
+                <div class="pane-header">
+                    <span class="pane-title">Execution Output</span>
+                    <span class="pane-hint">{{ execution.duration_ms }} ms</span>
+                </div>
+                <div class="debug-output-box font-mono" id="debug-output-box">
+                    <pre class="console-text">{{ execution.stdout if execution.stdout else '(No stdout produced)' }}</pre>
+                    {% if execution.stderr %}
+                        <pre class="console-text text-danger">{{ execution.stderr }}</pre>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bottom Time-Travel Control Bar -->
+    <div class="time-travel-bar">
+        <div class="step-controls">
+            <button type="button" class="btn btn-secondary step-btn" id="btn-step-first" title="First Step (Home)">
+                |◀ FIRST
+            </button>
+            <button type="button" class="btn btn-secondary step-btn" id="btn-step-prev" title="Previous Step (Left Arrow)">
+                ◀ PREV
+            </button>
+            <button type="button" class="btn btn-secondary step-btn" id="btn-step-next" title="Next Step (Right Arrow)">
+                NEXT ▶
+            </button>
+            <button type="button" class="btn btn-secondary step-btn" id="btn-step-last" title="Last Step (End)">
+                LAST ▶|
+            </button>
+        </div>
+
+        <div class="step-progress-wrapper">
+            <div class="step-info">
+                <span class="step-badge">Step <strong id="current-step-display">1</strong> of <span id="total-steps-display">{{ execution.step_count or (timeline|length) }}</span></span>
+                <span class="event-type-badge badge badge-info" id="event-type-badge">event: call</span>
+            </div>
+            <div class="step-slider-container">
+                <input 
+                    type="range" 
+                    id="step-slider" 
+                    class="step-slider" 
+                    min="1" 
+                    max="{{ execution.step_count or (timeline|length) or 1 }}" 
+                    value="1"
+                >
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/debugger.js') }}"></script>
+{% endblock %}

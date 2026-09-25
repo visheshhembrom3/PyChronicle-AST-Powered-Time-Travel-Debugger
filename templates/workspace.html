@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+
+{% block title %}Workspace — {{ program.name or 'New Program' }} — PyChronicle{% endblock %}
+
+{% block top_nav_actions %}
+    <a href="{{ url_for('routes.dashboard') }}" class="nav-btn nav-btn-primary" id="nav-home-btn" title="Home Dashboard">Home</a>
+    <button type="button" class="nav-btn" id="toolbar-save-btn" title="Save Program (Ctrl+S)">Save</button>
+    <button type="button" class="nav-btn nav-btn-success" id="toolbar-run-btn" title="Run Program (Ctrl+Enter)">Run</button>
+    <button type="button" class="nav-btn nav-btn-accent" id="toolbar-debug-btn" title="Debug with Time-Travel">Debug</button>
+    <a href="{{ url_for('routes.history') }}" class="nav-btn" id="nav-history-btn" title="Execution History">History</a>
+{% endblock %}
+
+{% block content %}
+<div class="workspace-wrapper">
+    <!-- Workspace Sidebar / Program Switcher -->
+    <aside class="workspace-sidebar" id="workspace-sidebar">
+        <div class="sidebar-header">
+            <h3 class="sidebar-title">Saved Programs</h3>
+            <button type="button" class="btn btn-xs btn-primary" id="btn-create-new-prog" title="New Program">+</button>
+        </div>
+        <div class="sidebar-programs-list" id="sidebar-programs-list">
+            {% for p in programs %}
+                <a href="{{ url_for('routes.workspace', program_id=p.id) }}" 
+                   class="sidebar-program-item {% if program.id == p.id %}active{% endif %}"
+                   id="prog-tab-{{ p.id }}">
+                    <span class="prog-item-title">{{ p.name }}</span>
+                    <span class="prog-item-status badge-dot-{{ 'success' if p.last_status == 'SUCCESS' else ('error' if 'ERROR' in p.last_status else 'muted') }}"></span>
+                </a>
+            {% endfor %}
+        </div>
+    </aside>
+
+    <!-- Main Workspace Area -->
+    <div class="workspace-main">
+        <!-- Program Metadata Bar -->
+        <div class="workspace-meta-bar">
+            <div class="meta-input-group">
+                <label for="program-name-input" class="meta-label">Program Name:</label>
+                <input 
+                    type="text" 
+                    id="program-name-input" 
+                    class="form-input meta-name-input" 
+                    value="{{ program.name or 'Untitled Program' }}" 
+                    placeholder="Enter program name..."
+                >
+                <input type="hidden" id="program-id-input" value="{{ program.id or '' }}">
+            </div>
+            
+            <div class="meta-actions">
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-save-workspace">
+                    💾 Save
+                </button>
+                <button type="button" class="btn btn-success btn-sm" id="btn-run-workspace">
+                    ▶ Run
+                </button>
+                <button type="button" class="btn btn-primary btn-sm" id="btn-debug-workspace">
+                    ⚡ Debug
+                </button>
+                <button type="button" class="btn btn-danger btn-sm" id="btn-delete-workspace" title="Delete Program" {% if not program.id %}style="display: none;"{% endif %}>
+                    🗑
+                </button>
+            </div>
+        </div>
+
+        <!-- Code Editor & Output Split -->
+        <div class="workspace-editor-layout">
+            <!-- Code Editor Panel -->
+            <div class="editor-pane">
+                <div class="pane-header">
+                    <span class="pane-title">Python Code:</span>
+                    <span class="pane-hint">Python 3.x AST-Traced Execution</span>
+                </div>
+                <div class="code-editor-container" id="editor-container">
+                    <div class="editor-line-numbers" id="editor-line-numbers"></div>
+                    <textarea 
+                        id="code-editor" 
+                        class="code-textarea font-mono" 
+                        spellcheck="false" 
+                        placeholder="Write your Python code here...">{{ program.source_code or '' }}</textarea>
+                </div>
+            </div>
+
+            <!-- Output Console Panel -->
+            <div class="output-pane">
+                <div class="pane-header">
+                    <span class="pane-title">Output:</span>
+                    <div class="output-status-tags" id="output-status-tags">
+                        <span class="badge badge-muted" id="badge-last-status">{{ program.last_status or 'READY' }}</span>
+                        <span class="badge badge-info" id="badge-exec-time" style="display: none;">0 ms</span>
+                    </div>
+                </div>
+                <div class="output-console font-mono" id="output-console">
+                    <pre class="console-text" id="console-output">{% if program.id %}Press [ RUN ] or [ DEBUG ] to execute this program via PyChronicle.{% else %}No output yet.{% endif %}</pre>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/workspace.js') }}"></script>
+{% endblock %}

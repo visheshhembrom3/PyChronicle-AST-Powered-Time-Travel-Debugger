@@ -233,10 +233,11 @@ def main() -> None:
     mem_results = run_synthetic_delta_benchmark()
     for k in ["workload_1", "workload_2"]:
         w = mem_results[k]
-        print(f"  • {w['name']}:")
+        print(f"  * {w['name']}:")
         print(f"      Full State Bytes:  {w['full_bytes']:,} bytes")
         print(f"      Delta Bytes:       {w['delta_bytes']:,} bytes")
         print(f"      Memory Reduction:  {w['reduction_pct']}%")
+
 
     agg = mem_results["aggregate"]
     print(f"\n  [AGGREGATE PAYLOAD REDUCTION]:")

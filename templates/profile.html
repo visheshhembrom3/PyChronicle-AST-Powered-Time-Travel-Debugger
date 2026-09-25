@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+
+{% block title %}User Profile — PyChronicle{% endblock %}
+
+{% block top_nav_actions %}
+    <a href="{{ url_for('routes.dashboard') }}" class="nav-btn nav-btn-primary" id="nav-home-btn" title="Dashboard">Home</a>
+    <a href="{{ url_for('routes.workspace') }}" class="nav-btn" id="nav-workspace-btn">Workspace</a>
+    <a href="{{ url_for('routes.history') }}" class="nav-btn" id="nav-history-btn">History</a>
+{% endblock %}
+
+{% block content %}
+<div class="profile-wrapper">
+    <div class="profile-header">
+        <h1 class="page-title">User Profile</h1>
+        <p class="page-subtitle">Manage your account information and security settings</p>
+    </div>
+
+    {% if error %}
+        <div class="form-alert form-alert-error">
+            <span>⚠</span> {{ error }}
+        </div>
+    {% endif %}
+
+    {% if success %}
+        <div class="form-alert form-alert-success">
+            <span>✓</span> {{ success }}
+        </div>
+    {% endif %}
+
+    <div class="profile-grid">
+        <!-- Account Overview Card -->
+        <div class="profile-card">
+            <h2 class="card-title">Account Details</h2>
+            <div class="profile-summary">
+                <div class="summary-item">
+                    <span class="summary-label">Full Name:</span>
+                    <span class="summary-val font-semibold">{{ user.name }}</span>
+                </div>
+                <div class="summary-item">
+                    <span class="summary-label">Email:</span>
+                    <span class="summary-val font-mono text-accent">{{ user.email }}</span>
+                </div>
+                <div class="summary-item">
+                    <span class="summary-label">Gender:</span>
+                    <span class="summary-val">{{ user.gender }}</span>
+                </div>
+                <div class="summary-item">
+                    <span class="summary-label">Date of Birth:</span>
+                    <span class="summary-val">{{ user.dob }}</span>
+                </div>
+                <div class="summary-item">
+                    <span class="summary-label">Member Since:</span>
+                    <span class="summary-val text-muted">{{ user.created_at[:10] }}</span>
+                </div>
+            </div>
+
+            <hr class="profile-divider">
+
+            <h3 class="card-subtitle">Update Profile</h3>
+            <form method="POST" action="{{ url_for('auth.profile') }}" class="auth-form" id="update-profile-form">
+                <input type="hidden" name="action" value="update_profile">
+
+                <div class="form-group">
+                    <label for="name" class="form-label">Full Name</label>
+                    <input type="text" id="name" name="name" class="form-input" value="{{ user.name }}" required>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group form-col">
+                        <label for="gender" class="form-label">Gender</label>
+                        <select id="gender" name="gender" class="form-select" required>
+                            {% for g_opt in valid_genders %}
+                                <option value="{{ g_opt }}" {% if user.gender == g_opt %}selected{% endif %}>{{ g_opt }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="form-group form-col">
+                        <label for="dob" class="form-label">Date of Birth</label>
+                        <input type="date" id="dob" name="dob" class="form-input" value="{{ user.dob }}" required>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn btn-secondary btn-block">Save Profile Changes</button>
+            </form>
+        </div>
+
+        <!-- Security / Password Change Card -->
+        <div class="profile-card">
+            <h2 class="card-title">Security & Password</h2>
+            <p class="card-desc">Keep your password secure by updating it regularly.</p>
+
+            <form method="POST" action="{{ url_for('auth.profile') }}" class="auth-form" id="change-password-form">
+                <input type="hidden" name="action" value="change_password">
+
+                <div class="form-group">
+                    <label for="current_password" class="form-label">Current Password</label>
+                    <input type="password" id="current_password" name="current_password" class="form-input" placeholder="••••••••" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="new_password" class="form-label">New Password <span class="label-hint">(min 6 chars)</span></label>
+                    <input type="password" id="new_password" name="new_password" class="form-input" placeholder="••••••••" minlength="6" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="confirm_password" class="form-label">Confirm New Password</label>
+                    <input type="password" id="confirm_password" name="confirm_password" class="form-input" placeholder="••••••••" minlength="6" required>
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-block">Change Password</button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+
+{% block title %}Execution History — PyChronicle{% endblock %}
+
+{% block top_nav_actions %}
+    <a href="{{ url_for('routes.dashboard') }}" class="nav-btn nav-btn-primary" id="nav-home-btn" title="Dashboard">Home</a>
+    <a href="{{ url_for('routes.workspace') }}" class="nav-btn" id="nav-workspace-btn">Workspace</a>
+{% endblock %}
+
+{% block content %}
+<div class="history-wrapper">
+    <div class="history-header">
+        <div>
+            <h1 class="page-title">Execution History</h1>
+            <p class="page-subtitle">Inspect past debugging traces and program state histories</p>
+        </div>
+        <div class="history-actions">
+            <a href="{{ url_for('routes.workspace') }}" class="btn btn-primary">
+                + New Program Execution
+            </a>
+        </div>
+    </div>
+
+    <!-- Filter & Search Bar -->
+    <div class="filter-bar">
+        <form method="GET" action="{{ url_for('routes.history') }}" class="filter-form">
+            <input 
+                type="text" 
+                name="search" 
+                class="form-input search-input" 
+                placeholder="Search by program name or output..." 
+                value="{{ search }}"
+            >
+
+            <select name="status" class="form-select status-select">
+                <option value="ALL" {% if status_filter == 'ALL' %}selected{% endif %}>All Statuses</option>
+                <option value="SUCCESS" {% if status_filter == 'SUCCESS' %}selected{% endif %}>Success</option>
+                <option value="FAILED" {% if status_filter in ['FAILED', 'USER_ERROR', 'ERROR'] %}selected{% endif %}>Error</option>
+            </select>
+
+            <select name="sort" class="form-select sort-select">
+                <option value="started_desc" {% if sort_by == 'started_desc' %}selected{% endif %}>Newest First</option>
+                <option value="started_asc" {% if sort_by == 'started_asc' %}selected{% endif %}>Oldest First</option>
+                <option value="name_asc" {% if sort_by == 'name_asc' %}selected{% endif %}>Program Name</option>
+                <option value="duration_desc" {% if sort_by == 'duration_desc' %}selected{% endif %}>Duration</option>
+            </select>
+
+            <button type="submit" class="btn btn-secondary btn-sm">Filter</button>
+            {% if search or status_filter != 'ALL' %}
+                <a href="{{ url_for('routes.history') }}" class="btn btn-sm btn-muted">Reset</a>
+            {% endif %}
+        </form>
+    </div>
+
+    <!-- Execution History Cards / Table -->
+    {% if executions %}
+        <div class="table-responsive history-table-container">
+            <table class="data-table" id="history-data-table">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Program Name</th>
+                        <th>Executed At</th>
+                        <th>Status</th>
+                        <th>Steps</th>
+                        <th>Duration</th>
+                        <th class="text-right">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in executions %}
+                        <tr id="exec-row-{{ item.id }}">
+                            <td class="font-mono text-muted">#{{ item.id }}</td>
+                            <td>
+                                <a href="{{ url_for('routes.historical_execution', execution_id=item.id) }}" class="history-item-link font-semibold text-accent">
+                                    {{ item.program_name }}
+                                </a>
+                            </td>
+                            <td class="text-muted">{{ item.started_at[:16].replace('T', ' ') }}</td>
+                            <td>
+                                <span class="badge badge-{{ 'success' if item.status == 'SUCCESS' else ('error' if 'ERROR' in item.status else 'warning') }}">
+                                    {{ item.status }}
+                                </span>
+                            </td>
+                            <td><strong>{{ item.step_count or 0 }}</strong></td>
+                            <td class="text-muted font-mono">{{ item.duration_ms }} ms</td>
+                            <td class="text-right">
+                                <a href="{{ url_for('routes.historical_execution', execution_id=item.id) }}" class="btn btn-sm btn-primary" id="open-exec-btn-{{ item.id }}">
+                                    Open
+                                </a>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <div class="empty-state">
+            <div class="empty-icon">📜</div>
+            <h3>No executions found</h3>
+            <p>No recorded execution sessions matched your criteria.</p>
+            <a href="{{ url_for('routes.workspace') }}" class="btn btn-primary btn-sm mt-3">Go to Workspace</a>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

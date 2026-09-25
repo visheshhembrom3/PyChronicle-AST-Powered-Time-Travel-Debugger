@@ -26,8 +26,10 @@ def cli(ctx: click.Context, db_path: Path, web: bool) -> None:
     """PyChronicle — AST-Powered Python Time-Travel Debugger & Programming Workspace."""
     if ctx.invoked_subcommand is None:
         if web:
-            from pychronicle.web.server import launch_web_ui
-            launch_web_ui(db_path=db_path, block=True)
+            from web import create_app
+            app = create_app(db_path=db_path)
+            click.echo(f"Starting PyChronicle Web Interface at http://127.0.0.1:5000 (Database: {db_path})")
+            app.run(host="127.0.0.1", port=5000, debug=False)
         else:
             from pychronicle.app import launch_application
             launch_application(db_path=db_path)
@@ -252,14 +254,20 @@ def workspace_cmd(db_path: Path) -> None:
 
 
 @cli.command(name="ui")
-@click.option("--port", "-p", type=int, default=8080, help="Port to host PyChronicle web interface.")
+@click.option("--port", "-p", type=int, default=5000, help="Port to host PyChronicle web interface.")
 @click.option("--host", "-h", type=str, default="127.0.0.1", help="Host address to bind.")
 @click.option("--db", "db_path", type=click.Path(dir_okay=False, path_type=Path), default=DEFAULT_DB_PATH, help="Path to SQLite database.")
 @click.option("--no-browser", is_flag=True, help="Do not automatically open default browser.")
 def launch_ui(port: int, host: str, db_path: Path, no_browser: bool) -> None:
     """Launch the interactive PyChronicle Time-Travel Debugger Web UI."""
-    from pychronicle.web.server import launch_web_ui
-    launch_web_ui(host=host, port=port, db_path=db_path, open_browser=not no_browser, block=True)
+    import webbrowser
+    from web import create_app
+    app = create_app(db_path=db_path)
+    url = f"http://{host}:{port}/"
+    click.echo(f"Starting PyChronicle Web Interface at {url} (Database: {db_path})")
+    if not no_browser:
+        webbrowser.open(url)
+    app.run(host=host, port=port, debug=False)
 
 
 @cli.command(name="programs")
@@ -339,6 +347,61 @@ def delete_program_cmd(program_id: int, yes: bool, db_path: Path) -> None:
     click.secho(f"Program '{prog['name']}' (ID #{program_id}) deleted successfully.", fg="green")
 
 
+@cli.command(name="run")
+@click.argument("target", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--db", "db_path", type=click.Path(dir_okay=False, path_type=Path), default=DEFAULT_DB_PATH, help="Path to SQLite database.")
+@click.option("--watch", "-w", "watch_vars", multiple=True, help="Variable name(s) to watch.")
+@click.option("--verbose", is_flag=True, help="Display verbose diagnostic outputs.")
+def run_cmd(target: Path, db_path: Path, watch_vars: tuple[str, ...], verbose: bool) -> None:
+    """Validate, parse AST, trace execution under sys.settrace(), and launch Textual TUI."""
+    from pychronicle.validation import validate_target_file
+    val_res = validate_target_file(target)
+    if not val_res.is_valid:
+        click.secho(f"Validation Failed:\n{val_res.error_message}", fg="red", bold=True)
+        sys.exit(1)
+
+    config = ChronicleConfig(db_path=db_path, verbose=verbose)
+    storage = SQLiteStorage(db_path=db_path)
+    try:
+        result = run_debug_session(target_path=target, config=config, storage=storage)
+    except PyChronicleError as e:
+        click.secho(f"\nDebugger Error: {e}", fg="red", bold=True)
+        sys.exit(1)
+
+    if result.replay:
+        from pychronicle.tui import PyChronicleTUI
+        app = PyChronicleTUI(replay=result.replay, source_file=target, watch_vars=list(watch_vars))
+        app.run()
+
+
+@cli.command(name="validate")
+@click.argument("target", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+def validate_cmd(target: Path) -> None:
+    """Validate target file syntax, AST parsing, and readability without running."""
+    from pychronicle.validation import validate_target_file
+    val_res = validate_target_file(target)
+    if val_res.is_valid:
+        click.secho(f"[PASS] Validation Passed: '{target}'", fg="green", bold=True)
+        click.echo(f"  Lines of Code: {val_res.line_count}")
+        click.echo(f"  AST Nodes:     {val_res.ast_nodes_count}")
+    else:
+        click.secho(f"[FAIL] Validation Failed: '{target}'", fg="red", bold=True)
+        click.echo(val_res.error_message)
+        sys.exit(1)
+
+
+
+@cli.command(name="history")
+@click.option("--db", "db_path", type=click.Path(dir_okay=False, path_type=Path), default=DEFAULT_DB_PATH, help="Path to SQLite database.")
+@click.pass_context
+def history_cmd(ctx: click.Context, db_path: Path) -> None:
+    """List all recorded debug sessions."""
+    ctx.forward(sessions)
+
+
 if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1].endswith(".py") and not sys.argv[1].startswith("-") and Path(sys.argv[1]).exists():
+        sys.argv.insert(1, "run")
     cli()
+
 

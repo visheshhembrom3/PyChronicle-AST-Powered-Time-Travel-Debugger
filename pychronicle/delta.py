@@ -146,3 +146,62 @@ class DeltaGenerator:
     def reset_all(self) -> None:
         """Reset all scope tracking caches."""
         self._scope_states.clear()
+
+
+def calculate_delta(
+    previous: Optional[Dict[str, Any] | CapturedState],
+    current: Dict[str, Any] | CapturedState,
+) -> Dict[str, Dict[str, Any]]:
+    """Calculate differential variable changes between previous and current state.
+
+    Supports both raw variable dicts (e.g. {'x': 10}) and CapturedState objects.
+
+    Returns:
+        Dictionary mapping variable names to their change descriptor:
+        {
+            "var_name": {
+                "old": old_value,
+                "new": new_value,
+                "operation": "CREATE" | "UPDATE" | "DELETE"
+            }
+        }
+    """
+    if isinstance(current, CapturedState):
+        gen = DeltaGenerator()
+        if previous and isinstance(previous, CapturedState):
+            gen._scope_states[previous.scope] = previous
+        state_delta = gen.compute_delta(current)
+        return state_delta.changes
+
+    # Handle dictionary of variable values
+    curr_dict = current if isinstance(current, dict) else {}
+    prev_dict = previous if (previous and isinstance(previous, dict)) else {}
+
+    deltas: Dict[str, Dict[str, Any]] = {}
+
+    # Detect CREATE and UPDATE
+    for k, v in curr_dict.items():
+        if k not in prev_dict:
+            deltas[k] = {
+                "operation": "CREATE",
+                "old": None,
+                "new": v,
+            }
+        elif prev_dict[k] != v:
+            deltas[k] = {
+                "operation": "UPDATE",
+                "old": prev_dict[k],
+                "new": v,
+            }
+
+    # Detect DELETE
+    for k, v in prev_dict.items():
+        if k not in curr_dict:
+            deltas[k] = {
+                "operation": "DELETE",
+                "old": v,
+                "new": None,
+            }
+
+    return deltas
+

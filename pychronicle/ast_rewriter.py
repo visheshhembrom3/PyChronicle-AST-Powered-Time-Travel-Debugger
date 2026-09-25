@@ -188,3 +188,38 @@ class ASTRewriter:
     def to_source(self, tree: ast.AST) -> str:
         """Unparse an AST tree back to Python source code."""
         return ast.unparse(tree)
+
+
+def rewrite_tree(tree: ast.AST, hook_name: str = INTERNAL_HOOK_NAME) -> ast.AST:
+    """Instrument an AST tree by inserting execution hook calls before statements.
+
+    Preserves source line numbers and semantics without mutating the original tree in place.
+
+    Args:
+        tree: Input AST tree.
+        hook_name: Injected hook function identifier.
+
+    Returns:
+        Transformed and location-fixed AST tree.
+    """
+    transformer = ChronicleASTTransformer(hook_name=hook_name)
+    new_tree = transformer.visit(tree)
+    ast.fix_missing_locations(new_tree)
+    return new_tree
+
+
+def rewrite_source(source: str, filename: str = "<target>", hook_name: str = INTERNAL_HOOK_NAME) -> Tuple[ast.AST, str]:
+    """Parse Python source code, instrument the AST, and return the transformed tree and source.
+
+    Args:
+        source: Python source code string.
+        filename: Optional source identifier for syntax errors.
+        hook_name: Injected hook function identifier.
+
+    Returns:
+        Tuple of (transformed_ast_tree, instrumented_source_code_str).
+    """
+    rewriter = ASTRewriter(hook_name=hook_name)
+    tree, _ = rewriter.parse_and_rewrite(source, filename=filename)
+    return tree, rewriter.to_source(tree)
+

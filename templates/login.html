@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+
+{% block title %}Login — PyChronicle Time-Travel Debugger{% endblock %}
+
+{% block content %}
+<div class="auth-wrapper">
+    <div class="auth-card">
+        <div class="auth-header">
+            <div class="auth-logo-badge">⚡</div>
+            <h1 class="auth-title">PyChronicle</h1>
+            <p class="auth-subtitle">AST-Powered Time-Travel Debugger</p>
+        </div>
+
+        {% if error %}
+            <div class="form-alert form-alert-error" id="login-error-alert">
+                <span>⚠</span> {{ error }}
+            </div>
+        {% endif %}
+
+        <form method="POST" action="{{ url_for('auth.login', next=request.args.get('next', '')) }}" class="auth-form" id="login-form">
+            <div class="form-group">
+                <label for="email" class="form-label">Email</label>
+                <input 
+                    type="email" 
+                    id="email" 
+                    name="email" 
+                    class="form-input" 
+                    value="{{ email }}" 
+                    placeholder="developer@example.com" 
+                    required 
+                    autofocus
+                >
+            </div>
+
+            <div class="form-group">
+                <label for="password" class="form-label">Password</label>
+                <input 
+                    type="password" 
+                    id="password" 
+                    name="password" 
+                    class="form-input" 
+                    placeholder="Enter your password" 
+                    required
+                >
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary btn-block btn-lg" id="login-submit-btn">
+                    LOGIN
+                </button>
+            </div>
+
+            <div class="auth-card-links">
+                <a href="{{ url_for('auth.forgot_password') }}" class="link-subtle" id="forgot-password-link">
+                    Forgot Password?
+                </a>
+            </div>
+
+            <div class="auth-divider">
+                <span>Don't have an account?</span>
+            </div>
+
+            <div class="auth-alt-action">
+                <a href="{{ url_for('auth.signup') }}" class="btn btn-secondary btn-block" id="signup-nav-btn">
+                    CREATE ACCOUNT
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
